@@ -4,14 +4,81 @@ import psutil
 import shutil
 import platform
 import cpuinfo
+import os
+import datetime
 from collections import deque
 
 RIGHT = '1111011100000011'
 LEFT = '1111011100000010'
+DATE_FORMAT = "%d/%m/%Y às %T"
+DIR = './files'
 CPU_INFO = cpuinfo.get_cpu_info()
 NUM_OF_CPUS = len(psutil.cpu_percent(interval=1, percpu=True))
+NUM_OF_PROCESS = 5
+FILES = os.listdir(DIR)
 
 sg.theme("LightBlue")
+
+def getListOfProcessSortedByMemory(num):
+  listOfProcObjects = []
+
+  for proc in psutil.process_iter():
+    try:
+      pinfo = proc.as_dict(attrs=['pid', 'name', 'username'])
+      pinfo['vms'] = proc.memory_info().vms / (1024 * 1024)
+
+      listOfProcObjects.append(pinfo)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+      pass
+
+  listOfProcObjects = sorted(listOfProcObjects, key=lambda procObj: procObj['vms'], reverse=True)
+
+  return listOfProcObjects[:num]
+
+PROCESSES = getListOfProcessSortedByMemory(NUM_OF_PROCESS)
+
+def cpu_percent(pid):
+  test_list = []
+  for i in range(5):
+    p = psutil.Process(pid)
+    p_cpu = p.cpu_percent(interval=0.1)
+    test_list.append(p_cpu)
+  return float(sum(test_list))/len(test_list)
+
+def format_file_path(file):
+  return(DIR + '/' + file)
+
+files_layout = [ [sg.Text("Informações de Arquivos e Diretórios")],
+  [
+    sg.Text(f"Nome do diretório atual: {os.getcwd()}")
+  ]
+]+ \
+[
+  [
+    sg.Text(f"Nome do arquivo: {FILES[x]}"),
+    sg.Text(f"Tamanho: {os.path.getsize(format_file_path(FILES[x]))} bytes"),
+    sg.Text(f"Data de criação: {datetime.datetime.fromtimestamp(os.stat(format_file_path(FILES[x])).st_ctime).strftime(DATE_FORMAT)}"),
+    sg.Text(f"Data de modificação: {datetime.datetime.fromtimestamp(os.stat(format_file_path(FILES[x])).st_mtime).strftime(DATE_FORMAT)}"),
+    sg.Text(f"Tipo: {FILES[x].split('.')[1]}")
+  ] for x in range(len(FILES))
+] 
+
+process_layout = [ [sg.Text("Informações de Processos")],
+  [
+    sg.Text(f"PID do processo do Python: {os.getpid()}"),
+    sg.Text(f"Porcentagem do processador no processo do programa: {cpu_percent(os.getpid())}", key=f"python_cpu_percent")
+  ]
+]+ \
+[
+  [
+    sg.Text(f"PID: {PROCESSES[x]['pid']}", key=f"process_pid-{x}"),
+    sg.Text(f"Nome do executável: {PROCESSES[x]['name']}", key=f"process_name-{x}"),
+    sg.Text(f"Consumo de processamento: {cpu_percent(PROCESSES[x]['pid'])} (%)", key=f"process_cpu_percent-{x}"),
+    sg.Text(f"Consumo de memória: {PROCESSES[x]['vms']}", key=f"process_vms-{x}"),
+    sg.Text(f"Usuário: {PROCESSES[x]['username']}", key=f"process_username-{x}")
+  ] for x in range(NUM_OF_PROCESS)
+] 
+
 
 cpu_layout = [ [sg.Text("Informações do Processador")],
   [
@@ -78,6 +145,8 @@ summary_layout = [ [sg.Text("Resumo")],
 ]
 
 layout_carousel = deque([
+  ['files' ,files_layout],
+  ['process' ,process_layout],
   ['cpu', cpu_layout],
   ['memory', memory_layout],
   ['disk', disk_layout],
@@ -86,7 +155,9 @@ layout_carousel = deque([
 
 layout = [
   [
-    sg.Column(cpu_layout, key='cpu'),
+    sg.Column(files_layout, key='files'),
+    sg.Column(process_layout, key='process', visible=False),
+    sg.Column(cpu_layout, key='cpu', visible=False),
     sg.Column(memory_layout, visible=False, key='memory'),
     sg.Column(disk_layout, visible=False, key='disk'),
     sg.Column(ip_layout, visible=False, key='ip'),
@@ -137,8 +208,25 @@ def info_att(window, topic):
     per_disco = int((shutil.disk_usage('/').used / shutil.disk_usage('/').total)*100)
 
     disk_bar.UpdateBar(per_disco)
+  if topic == 'process':
+    python_cpu_text = window[f"python_cpu_percent"]
+    python_cpu_text.Update(f"Porcentagem do processador no processo do programa: {cpu_percent(os.getpid())}")
 
-window = sg.Window('TP3 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
+    PROCESSES = getListOfProcessSortedByMemory(NUM_OF_PROCESS)
+    for x in range(NUM_OF_PROCESS):
+      process_pid = window[f"process_pid-{x}"]
+      process_name = window[f"process_name-{x}"]
+      process_cpu_percent = window[f"process_cpu_percent-{x}"]
+      process_vms = window[f"process_vms-{x}"]
+      process_username = window[f"process_username-{x}"]
+
+      process_pid.Update(f"PID: {PROCESSES[x]['pid']}")
+      process_name.Update(f"Nome do executável: {PROCESSES[x]['name']}")
+      process_cpu_percent.Update(f"Consumo de processamento: {cpu_percent(PROCESSES[x]['pid'])} (%)")
+      process_vms.Update(f"Consumo de memória: {PROCESSES[x]['vms']}")
+      process_username.Update(f"Usuário: {PROCESSES[x]['username']}")
+
+window = sg.Window('TP4 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
 
 while True:
   event, values = window.read(timeout=1000)
