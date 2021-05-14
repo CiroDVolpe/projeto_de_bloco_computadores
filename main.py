@@ -5,19 +5,54 @@ import shutil
 import platform
 import cpuinfo
 import os
-import datetime
+from datetime import datetime
+import sched
+import time
 from collections import deque
 
 RIGHT = '1111011100000011'
 LEFT = '1111011100000010'
 DATE_FORMAT = "%d/%m/%Y às %T"
+TIME_FORMAT = '%H:%M:%S'
 DIR = './files'
 CPU_INFO = cpuinfo.get_cpu_info()
 NUM_OF_CPUS = len(psutil.cpu_percent(interval=1, percpu=True))
 NUM_OF_PROCESS = 5
 FILES = os.listdir(DIR)
 
+start_time = call_time = exec_time = start_clock = exec_clock = 0
+
 sg.theme("LightBlue")
+
+def string_of_now():
+  return time.strftime(TIME_FORMAT, time.localtime())
+
+def get_files_by_dir(dir):
+  global call_time
+  call_time = string_of_now()
+
+  time.sleep(1)
+  files = os.listdir(dir)
+
+  global exec_time
+  exec_time = string_of_now()
+
+  global exec_clock
+  exec_clock = time.process_time()
+
+  return files
+
+def schedule_finder():
+  scheduler = sched.scheduler(time.time, time.sleep)
+
+  global start_time
+  start_time = string_of_now()
+
+  global start_clock
+  start_clock = time.process_time()
+
+  scheduler.enter(1, 3, get_files_by_dir, (DIR,))
+  scheduler.run()
 
 def getListOfProcessSortedByMemory(num):
   listOfProcObjects = []
@@ -51,14 +86,21 @@ def format_file_path(file):
 files_layout = [ [sg.Text("Informações de Arquivos e Diretórios")],
   [
     sg.Text(f"Nome do diretório atual: {os.getcwd()}")
-  ]
+  ],
+  [sg.Text("Dados do escalonamento de 1 segundo com sleep de 1 segundo da função de verificação de arquivos: ")],
+  [sg.Text("Tempo inicial: CLIQUE EM RODAR PARA RECEBER UM VALOR", key="start_time_text")],
+  [sg.Text("Tempo chamada: CLIQUE EM RODAR PARA RECEBER UM VALOR", key="call_time_text")],
+  [sg.Text("Tempo final da execução: CLIQUE EM RODAR PARA RECEBER UM VALOR", key="exec_time_text")],
+  [sg.Text("Duração da chamada: CLIQUE EM RODAR PARA RECEBER UM VALOR", key="proc_time_text")],
+  [sg.Text("Quantidade total de clocks para a realização do inicio até o final: CLIQUE EM RODAR PARA RECEBER UM VALOR", key="clock_time_text")],
+  [sg.Button('RODAR')]
 ]+ \
 [
   [
     sg.Text(f"Nome do arquivo: {FILES[x]}"),
     sg.Text(f"Tamanho: {os.path.getsize(format_file_path(FILES[x]))} bytes"),
-    sg.Text(f"Data de criação: {datetime.datetime.fromtimestamp(os.stat(format_file_path(FILES[x])).st_ctime).strftime(DATE_FORMAT)}"),
-    sg.Text(f"Data de modificação: {datetime.datetime.fromtimestamp(os.stat(format_file_path(FILES[x])).st_mtime).strftime(DATE_FORMAT)}"),
+    sg.Text(f"Data de criação: {datetime.fromtimestamp(os.stat(format_file_path(FILES[x])).st_ctime).strftime(DATE_FORMAT)}"),
+    sg.Text(f"Data de modificação: {datetime.fromtimestamp(os.stat(format_file_path(FILES[x])).st_mtime).strftime(DATE_FORMAT)}"),
     sg.Text(f"Tipo: {FILES[x].split('.')[1]}")
   ] for x in range(len(FILES))
 ] 
@@ -66,7 +108,7 @@ files_layout = [ [sg.Text("Informações de Arquivos e Diretórios")],
 process_layout = [ [sg.Text("Informações de Processos")],
   [
     sg.Text(f"PID do processo do Python: {os.getpid()}"),
-    sg.Text(f"Porcentagem do processador no processo do programa: {cpu_percent(os.getpid())}", key=f"python_cpu_percent")
+    sg.Text(f"Porcentagem do processador no processo do programa: {cpu_percent(os.getpid())}", key="python_cpu_percent")
   ]
 ]+ \
 [
@@ -208,8 +250,26 @@ def info_att(window, topic):
     per_disco = int((shutil.disk_usage('/').used / shutil.disk_usage('/').total)*100)
 
     disk_bar.UpdateBar(per_disco)
+  if topic == 'files':
+    if start_time != 0:
+      start_time_field = window['start_time_text']
+      start_time_field.Update(f"Tempo inicial: {start_time}")
+
+      call_time_field = window['call_time_text']
+      call_time_field.Update(f"Tempo chamada (c/ delay): {call_time}")
+
+      exec_time_field = window['exec_time_text']
+      exec_time_field.Update(f"Tempo final da execução (c/ sleep): {exec_time}")
+
+      proc_time_field = window['proc_time_text']
+      exec_call_time_diff = datetime.strptime(exec_time, TIME_FORMAT) - datetime.strptime(call_time, TIME_FORMAT)
+      proc_time_field.Update(f"Duração da chamada (c/ sleep): {exec_call_time_diff}")
+
+      clock_time_field = window['clock_time_text']
+      clock_time_field.Update(f"Quantidade total de clocks para a realização do inicio até o final: {round(exec_clock - start_clock, 7)} segundo")
+
   if topic == 'process':
-    python_cpu_text = window[f"python_cpu_percent"]
+    python_cpu_text = window["python_cpu_percent"]
     python_cpu_text.Update(f"Porcentagem do processador no processo do programa: {cpu_percent(os.getpid())}")
 
     PROCESSES = getListOfProcessSortedByMemory(NUM_OF_PROCESS)
@@ -253,6 +313,8 @@ while True:
         window[current_topic()].update(visible=False)
         layout_carousel.rotate(-1)
         window[current_topic()].update(visible=True)
+      if event == 'RODAR':
+        schedule_finder()
   
   info_att(window, 'summary' if window['summary'].visible else current_topic())
 
