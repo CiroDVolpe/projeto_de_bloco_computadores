@@ -286,7 +286,7 @@ def info_att(window, topic):
       process_vms.Update(f"Consumo de memória: {PROCESSES[x]['vms']}")
       process_username.Update(f"Usuário: {PROCESSES[x]['username']}")
 
-window = sg.Window('TP4 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
+window = sg.Window('TP5 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
 
 while True:
   event, values = window.read(timeout=1000)
