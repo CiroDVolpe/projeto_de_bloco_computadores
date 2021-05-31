@@ -5,9 +5,11 @@ import shutil
 import platform
 import cpuinfo
 import os
-from datetime import datetime
 import sched
 import time
+import subprocess
+from nmap import PortScanner
+from datetime import datetime
 from collections import deque
 
 RIGHT = '1111011100000011'
@@ -19,10 +21,64 @@ CPU_INFO = cpuinfo.get_cpu_info()
 NUM_OF_CPUS = len(psutil.cpu_percent(interval=1, percpu=True))
 NUM_OF_PROCESS = 5
 FILES = os.listdir(DIR)
+NM = PortScanner()
+MAX_HOST_NUM = 10
 
 start_time = call_time = exec_time = start_clock = exec_clock = 0
 
 sg.theme("LightBlue")
+
+def ping_code(hostname):
+  if platform.system() == "Windows":
+    args = ["ping", "-n", "2", "-l", "1", "-w", "100", hostname]
+  else:
+    args = ['ping', '-c', '1', '-W', '1', hostname]
+  ret_cod = subprocess.call(args, stdout=open(os.devnull, 'w'), stderr=open(os.devnull, 'w'))
+  return ret_cod
+
+def verify_hosts(base_ip):
+  host_validos = []
+  for i in range(1, 254):
+    if (ping_code(base_ip + str(i)) == 0):
+      host_validos.append(base_ip + str(i))
+  return host_validos
+
+def get_formated_hostname(host):
+  name = ''
+  try:
+    name = NM[host].hostname()
+  except:
+    print("Erro de hostname:", host)
+
+  if not name:
+    name = "Não possui nome disponível"
+  return(f"IP: {host} ({name})")
+  
+def get_formated_protocols(host):
+  protocols = ''
+  try:
+    protocols = NM[host].all_protocols()
+  except:
+    print("Erro de protocols:", host)
+
+  protocols = ', '.join(protocols)
+  if not protocols:
+    protocols = "Não possui protocolo disponível"
+  return(f"Protocolos: {protocols}")
+
+def get_formated_ports_info(host):
+  ports_infos = []
+  for proto in NM[host].all_protocols():
+    ports_infos.append(f'Protocolo : {proto}\t')
+    this_proto_ports_info = []
+    for port in NM[host][proto].keys():
+      port_info = NM[host][proto][port]
+      text_port_info = f'Porta: {port}, Nome: {port_info["name"]}, Estado: {port_info["state"]}'
+      this_proto_ports_info.append(text_port_info)
+    ports_infos.append(" \n ".join(this_proto_ports_info))
+
+  formated_ports_infos = " \n ".join(ports_infos)
+  return(formated_ports_infos)
 
 def string_of_now():
   return time.strftime(TIME_FORMAT, time.localtime())
@@ -166,9 +222,26 @@ disk_layout = [ [sg.Text("Informações do Disco")],
   ]
 ]
 
-ip_layout = [ [sg.Text("Informações da Máquina")],
-  [sg.Text(f"IP da máquina: {socket.gethostbyname(socket.gethostname())}")]
-]
+ip_layout = [ [sg.Text("Informações da SubRede")],
+  [sg.Text(f"IP da máquina atual: {socket.gethostbyname(socket.gethostname())}")],
+  [
+    sg.Text("Digite um IP"),
+    sg.InputText(key='EntradaIP'),
+    sg.Button('BUSCAR')
+  ],
+  [
+    sg.Text("Esse processo pode demorar!"),
+  ]
+]+ \
+[
+  [
+    sg.Text(f"HOST {x + 1}", key=f"host-{x}", visible=False),
+    sg.Text("IP: 000.000.000.000 Placeholder (Nome Placeholder Nome Placeholder Nome Placeholder Nome Placeholder)", key=f"ip_host-{x}", visible=False),
+    sg.Text("Estado: Estado Placeholder", key=f"state_host-{x}", visible=False),
+    sg.Text("Protocolos disponiveis: Protocolos Placeholder", key=f"protocols_host-{x}", visible=False),
+    sg.Multiline("Portas disponíveis e suas infos: Portas Placeholder Estado da Porta: Estado Placeholder", key=f"ports_host-{x}",disabled=True, visible=False)
+  ] for x in range(MAX_HOST_NUM)
+] 
 
 summary_layout = [ [sg.Text("Resumo")],
   [
@@ -217,7 +290,40 @@ def current_topic():
 def event_is_direction(event, direction):
   return ' '.join(format(ord(x), 'b') for x in event) == eval(direction)
 
-def info_att(window, topic):
+def info_att(window, topic, args = ''):
+  if topic == 'ip':
+    if args != '':
+      ip_lista = args.split(".")
+      rede = ".".join(ip_lista[0:3]) + "."
+      hosts = verify_hosts(rede)
+      hosts_len = len(hosts)
+      for x in range(hosts_len):
+        host = hosts[x]
+        NM.scan(host)
+
+        host_num = window[f"host-{x}"]
+        host_num.update(visible=True)
+
+        ip_host = window[f"ip_host-{x}"]
+        formated_name = get_formated_hostname(host)
+        ip_host.Update(f"{formated_name}")
+        ip_host.update(visible=True)
+
+        state_host = window[f"state_host-{x}"]
+        state = NM[host]['status']['state']
+        state_host.Update(f"Estado: {state}")
+        state_host.update(visible=True)
+
+        protocols_host = window[f"protocols_host-{x}"]
+        formated_protocols = get_formated_protocols(host)
+        protocols_host.Update(f"{formated_protocols}")
+        protocols_host.update(visible=True)
+
+        ports_host = window[f"ports_host-{x}"]
+        formated_ports_info = get_formated_ports_info(host)
+        ports_host.Update(f"{formated_ports_info}")
+        ports_host.update(visible=True)
+
   if topic == 'summary':
     summary_cpu_bar = window['summary_cpu_percentage']
     summary_memory_bar = window['summary_memory_percentage']
@@ -286,7 +392,7 @@ def info_att(window, topic):
       process_vms.Update(f"Consumo de memória: {PROCESSES[x]['vms']}")
       process_username.Update(f"Usuário: {PROCESSES[x]['username']}")
 
-window = sg.Window('TP5 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
+window = sg.Window('TP6 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
 
 while True:
   event, values = window.read(timeout=1000)
@@ -303,7 +409,8 @@ while True:
         window[current_topic()].update(visible=False)
         window['summary'].update(visible=True)
     else:
-      window['summary'].update(visible=False)
+      if window['summary'].visible:
+        window['summary'].update(visible=False)
 
       if event == '<' or event_is_direction(event, 'LEFT'):
         window[current_topic()].update(visible=False)
@@ -315,6 +422,9 @@ while True:
         window[current_topic()].update(visible=True)
       if event == 'RODAR':
         schedule_finder()
+      if event == 'BUSCAR':
+        args = values['EntradaIP']
+        info_att(window, current_topic(), args)
   
   info_att(window, 'summary' if window['summary'].visible else current_topic())
 
