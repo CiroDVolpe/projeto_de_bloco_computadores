@@ -28,6 +28,26 @@ start_time = call_time = exec_time = start_clock = exec_clock = 0
 
 sg.theme("LightBlue")
 
+def obtem_nome_familia(familia):
+  if familia == socket.AF_INET:
+    return("IPv4")
+  elif familia == socket.AF_INET6:
+    return("IPv6")
+  elif familia == socket.AF_UNIX:
+    return("Unix")
+  else:
+    return("-")
+
+def obtem_tipo_socket(tipo):
+  if tipo == socket.SOCK_STREAM:
+    return("TCP")
+  elif tipo == socket.SOCK_DGRAM:
+    return("UDP")
+  elif tipo == socket.SOCK_RAW:
+    return("IP")
+  else:
+    return("-")
+
 def ping_code(hostname):
   if platform.system() == "Windows":
     args = ["ping", "-n", "2", "-l", "1", "-w", "100", hostname]
@@ -241,7 +261,22 @@ ip_layout = [ [sg.Text("Informações da SubRede")],
     sg.Text("Protocolos disponiveis: Protocolos Placeholder", key=f"protocols_host-{x}", visible=False),
     sg.Multiline("Portas disponíveis e suas infos: Portas Placeholder Estado da Porta: Estado Placeholder", key=f"ports_host-{x}",disabled=True, visible=False)
   ] for x in range(MAX_HOST_NUM)
-] 
+]
+
+net_layout = [ [sg.Text("Informações das Conexões em Rede")],
+  [
+    sg.Text("Interfaces conectadas"),
+    sg.Multiline("Conexões e seus detalhes placeholder", key="net_interfaces_info", size=(100, 20), disabled=True, visible=False)
+  ],
+  [
+    sg.Text("Uso de dados de rede por interface"),
+    sg.Multiline("Uso de dados de rede por interface placeholder", key=f"net_interfaces_ios", size=(100, 20), disabled=True, visible=False)
+  ],
+  [
+    sg.Text("Uso de dados de rede por processo"),
+    sg.Multiline("Uso de dados de rede por processo placeholder", key=f"net_processes", size=(100, 20), disabled=True, visible=False)
+  ]
+]
 
 summary_layout = [ [sg.Text("Resumo")],
   [
@@ -265,7 +300,8 @@ layout_carousel = deque([
   ['cpu', cpu_layout],
   ['memory', memory_layout],
   ['disk', disk_layout],
-  ['ip', ip_layout]
+  ['ip', ip_layout],
+  ['net', net_layout]
 ])
 
 layout = [
@@ -276,6 +312,7 @@ layout = [
     sg.Column(memory_layout, visible=False, key='memory'),
     sg.Column(disk_layout, visible=False, key='disk'),
     sg.Column(ip_layout, visible=False, key='ip'),
+    sg.Column(net_layout, visible=False, key='net'),
     sg.Column(summary_layout, visible=False, key='summary'),
   ],
   [sg.Button('<'), sg.Text('Aperte ESPAÇO para ver ou sair do resumo.'), sg.Button('>'), sg.Cancel('Sair')]
@@ -291,6 +328,62 @@ def event_is_direction(event, direction):
   return ' '.join(format(ord(x), 'b') for x in event) == eval(direction)
 
 def info_att(window, topic, args = ''):
+  if topic == 'net':
+    net_interfaces_info = window["net_interfaces_info"]
+    if not net_interfaces_info.visible:
+      interfaces = psutil.net_if_addrs()
+      interfaces_text = ""
+
+      for i in interfaces:
+        nome = str(i)
+        interfaces_text = interfaces_text + f"{nome}: \n"
+        for info in interfaces[nome]:
+          interfaces_text = interfaces_text + f"\t Endereço: {info.address} | Mascara de rede: {info.netmask} | Familia: {obtem_nome_familia(info.family)} \n"
+
+      net_interfaces_info.Update(f"{interfaces_text}")
+      net_interfaces_info.update(visible=True)
+
+
+    io_status = psutil.net_io_counters(pernic=True)
+    ios_text = ""
+    for i in io_status:
+      ios_text = ios_text + f"{str(i)} \n"
+      info = io_status[str(i)]
+      ios_text = ios_text + f"\t BYTES: Envidaos: {info.bytes_sent} | Recebidos: {info.bytes_recv} \n\t PACOTES: Enviados: {info.packets_sent} | Recebidos: {info.packets_recv} \n"
+    
+    net_interfaces_ios = window["net_interfaces_ios"]
+    net_interfaces_ios.Update(f"{ios_text}")
+    net_interfaces_ios.update(visible=True)
+
+
+    n = 0
+    pids_text = ""
+    pids = psutil.pids()
+    for pid in pids:
+      try:
+        p = psutil.Process(pid)
+        conns = p.connections()
+        if (conns):
+          if n >= NUM_OF_PROCESS:
+            break
+          n += 1
+          for conn in conns:
+            familia = obtem_nome_familia(conn.family)
+            tipo = obtem_tipo_socket(conn.type)
+            status = conn.status
+            ip_porta_local = "<" + conn.laddr[0] + ":" + str(conn.laddr[1]) + ">"
+            if (conn.raddr):
+              ip_porta_remote = "<" + conn.raddr[0] + ":" + str(conn.raddr[1]) + ">"
+            else:
+              ip_porta_remote = "<>"
+            pids_text = pids_text + f"PID: {pid}\n \tFamilia: {familia} | Tipo: {tipo} | status: {status} | IP local: {ip_porta_local} | IP remote: {ip_porta_remote}\n\n"
+      except:
+        pass
+  
+    net_processes = window["net_processes"]
+    net_processes.Update(f"{pids_text}")
+    net_processes.update(visible=True)
+
   if topic == 'ip':
     if args != '':
       ip_lista = args.split(".")
@@ -392,7 +485,7 @@ def info_att(window, topic, args = ''):
       process_vms.Update(f"Consumo de memória: {PROCESSES[x]['vms']}")
       process_username.Update(f"Usuário: {PROCESSES[x]['username']}")
 
-window = sg.Window('TP6 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
+window = sg.Window('TP7 - Dados sobre o PC', layout, return_keyboard_events=True, use_default_focus=False)
 
 while True:
   event, values = window.read(timeout=1000)
